@@ -20,8 +20,7 @@ The initial detection module includes:
    - Identifies who is being swapped
    - Shows target name in alerts
 
-3. **Neurosilencer Detection** 🆕
-   - Automatically checks if target has Neurosilencer buff
+3. **Neurosilencer Detection**    - Automatically checks if target has Neurosilencer buff
    - Warns in alert: "(NEUROSILENCER ACTIVE - will block!)"
    - Helps raid avoid wasted SwapBlaster attempts
    - Uses efficient aura checking
@@ -51,12 +50,11 @@ The initial detection module includes:
    - Test button to preview sounds
    - Toggle on/off
 
-4. **Screen Warnings** 🆕 (Fully Customizable!)
+4. **Screen Warnings** (Fully Customizable!)
    - **NOT** the basic raid warning frame
    - Custom frame system with full control
 
-### Screen Alert Customization 🆕
-
+### Screen Alert Customization 
 Access via: `/snitch` → "Screen warning" → "Configure..." button
 
 **Font Options:**
@@ -113,8 +111,7 @@ Access via: `/snitch` command
 - Module descriptions shown
 - Future modules will appear here automatically
 
-### Screen Alert Config Panel 🆕
-Separate dedicated panel for screen customization:
+### Screen Alert Config Panel Separate dedicated panel for screen customization:
 - All font and display settings
 - Repositioning controls
 - Live test button
@@ -231,8 +228,7 @@ A: See `Modules/SwapBlaster.lua` as template. Create new file, register module, 
 snitch/
 ├── Snitch.toc           - Addon descriptor & file list
 ├── Core.lua             - Main framework & alert system
-├── ScreenAlert.lua      - Custom screen alert system 🆕
-├── Config.lua           - Main configuration UI
+├── ScreenAlert.lua      - Custom screen alert system ├── Config.lua           - Main configuration UI
 ├── Modules/
 │   └── SwapBlaster.lua  - SwapBlaster detection module
 ├── README.md            - User documentation
@@ -247,16 +243,16 @@ snitch/
 
 Snitch is a production-ready, highly customizable addon for monitoring group member actions. The initial SwapBlaster module demonstrates the system's capabilities:
 
-✅ Accurate detection via combat log
-✅ Target identification
-✅ Neurosilencer buff detection
-✅ Multiple alert methods
-✅ Fully customizable screen alerts
-✅ Drag-and-drop positioning
-✅ Performance optimized
-✅ Error handling
-✅ Easy to extend
-✅ Well documented
-✅ User-friendly configuration
+- Accurate detection via combat log
+- Target identification
+- Neurosilencer buff detection
+- Multiple alert methods
+- Fully customizable screen alerts
+- Drag-and-drop positioning
+- Performance optimized
+- Error handling
+- Easy to extend
+- Well documented
+- User-friendly configuration
 
 The modular architecture makes adding new detection modules straightforward while maintaining code quality and performance.

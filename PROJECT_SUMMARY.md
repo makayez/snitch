@@ -252,16 +252,16 @@ snitch/
 
 ## Best Practice Highlights
 
-✅ Localized globals for performance
-✅ Error handling with pcall
-✅ Efficient combat log filtering
-✅ Modular, maintainable architecture
-✅ Single source of truth for version
-✅ Clean separation of concerns
-✅ Comprehensive documentation
-✅ Debug mode for troubleshooting
-✅ Settings persistence
-✅ User-friendly configuration UI
+- Localized globals for performance
+- Error handling with pcall
+- Efficient combat log filtering
+- Modular, maintainable architecture
+- Single source of truth for version
+- Clean separation of concerns
+- Comprehensive documentation
+- Debug mode for troubleshooting
+- Settings persistence
+- User-friendly configuration UI
 
 ## Summary
 

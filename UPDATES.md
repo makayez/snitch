@@ -2,8 +2,7 @@
 
 ## Major Changes
 
-### Per-Module Alert Configuration 🎉
-
+### Per-Module Alert Configuration 
 **Before**: All modules shared the same alert settings (global console, chat, audio, screen settings)
 
 **Now**: Each module has its own independent alert configuration!
@@ -18,8 +17,7 @@
 2. Per-module enable/disable (module checkbox)
 3. Per-module alert settings (click "Configure..." button)
 
-### New Life Grip Module 🆕
-
+### New Life Grip Module 
 Detects when a priest uses Life Grip (Leap of Faith) **while out of combat**.
 
 **Features**:
@@ -37,8 +35,8 @@ Detects when a priest uses Life Grip (Leap of Faith) **while out of combat**.
 /snitch
 ├── Global Enable/Disable (master switch)
 └── Modules:
-    ├── [✓] SwapBlaster Detector [Configure...]
-    └── [✓] Life Grip Detector [Configure...]
+    ├── [x] SwapBlaster Detector [Configure...]
+    └── [x] Life Grip Detector [Configure...]
 ```
 
 ### Per-Module Config Panel
@@ -230,12 +228,12 @@ Before testing, verify these spell IDs in-game:
 
 ## Summary
 
-✅ Per-module alert configuration implemented
-✅ Life Grip detection module added
-✅ Configuration UI redesigned
-✅ Data structure updated
-✅ `/snitch status` enhanced
-✅ Backward compatible
-✅ Documentation updated
+- Per-module alert configuration implemented
+- Life Grip detection module added
+- Configuration UI redesigned
+- Data structure updated
+- `/snitch status` enhanced
+- Backward compatible
+- Documentation updated
 
 **Ready for testing!**
