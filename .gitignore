@@ -1,0 +1,22 @@
+# WoW AddOn specific
+*.bak
+*.old
+*.orig
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Packaging
+*.zip
+releases/
+
+# Testing
+test-results/
