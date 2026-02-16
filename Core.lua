@@ -1,33 +1,23 @@
 -- Core.lua - Main addon logic
+-- EventListener.lua MUST be listed before this in the TOC.
 
 local ADDON_NAME = ...
 Snitch = Snitch or {}
 
--- Read version from .toc file (single source of truth)
-Snitch.VERSION = GetAddOnMetadata(ADDON_NAME, "Version") or "Unknown"
+Snitch.VERSION = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "Unknown"
 
 -- ============================================================================
--- Localize Globals (Performance)
+-- Localize Globals
 -- ============================================================================
 
-local _G = _G
 local pairs = pairs
 local ipairs = ipairs
-local type = type
 local print = print
 local string_format = string.format
-local string_lower = string.lower
-local math_floor = math.floor
 
--- WoW API
-local CreateFrame = CreateFrame
-local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
-local GetAddOnMetadata = GetAddOnMetadata or C_AddOns.GetAddOnMetadata
 local IsInRaid = IsInRaid
-local IsInGroup = IsInGroup
-local UnitInParty = UnitInParty
 local UnitInRaid = UnitInRaid
-local GetTime = GetTime
+local UnitName = UnitName
 local SendChatMessage = SendChatMessage
 local PlaySound = PlaySound
 local C_Timer = C_Timer
@@ -37,20 +27,28 @@ local C_Timer = C_Timer
 -- ============================================================================
 
 Snitch.modules = {}
+Snitch._pendingModules = Snitch._pendingModules or {}
 
 function Snitch:RegisterModule(moduleId, config)
+    if self._modulesReady then
+        self:_RegisterModuleNow(moduleId, config)
+    else
+        table.insert(self._pendingModules, { id = moduleId, config = config })
+    end
+end
+
+function Snitch:_RegisterModuleNow(moduleId, config)
     if self.modules[moduleId] then
         print(string_format("Snitch: Module %s already registered", moduleId))
         return
     end
-
     self.modules[moduleId] = {
-        id = moduleId,
-        name = config.name,
+        id          = moduleId,
+        name        = config.name,
         description = config.description,
-        onCombatLogEvent = config.onCombatLogEvent,
-        onEvent = config.onEvent,
-        initialize = config.initialize
+        onEvent     = config.onEvent,
+        initialize  = config.initialize,
+        events      = config.events or {},
     }
 end
 
@@ -61,57 +59,36 @@ end
 SnitchDB = SnitchDB or {}
 
 local function InitializeSettings()
-    -- Global enable/disable (master switch)
-    if SnitchDB.enabled == nil then
-        SnitchDB.enabled = true
-    end
-
-    -- Debug mode
-    if SnitchDB.debug == nil then
-        SnitchDB.debug = false
-    end
-
-    -- Module settings (will be initialized per-module)
+    if SnitchDB.enabled == nil then SnitchDB.enabled = true end
+    if SnitchDB.debug   == nil then SnitchDB.debug   = false end
     SnitchDB.modules = SnitchDB.modules or {}
-
-    -- Screen alert appearance settings (global - just controls how alerts look)
-    -- The per-module screen alert on/off is in module settings
-    if SnitchDB.screenAlert == nil then
-        -- This will be initialized by ScreenAlert.lua
-    end
 end
 
--- Initialize per-module settings with default alert preferences
 local function InitializeModuleSettings(moduleId)
     if not SnitchDB.modules[moduleId] then
         SnitchDB.modules[moduleId] = {
             enabled = true,
-            alerts = {
-                console = true,
-                chat = false,
-                chatType = "PARTY",  -- PARTY, RAID, or SAY
-                audio = false,
+            alerts  = {
+                console   = true,
+                chat      = false,
                 audioFile = SOUNDKIT.RAID_WARNING or 8959,
-                screen = false
+                audio     = false,
+                screen    = false,
             }
         }
-    else
-        -- Ensure alerts table exists (for backward compatibility)
-        if not SnitchDB.modules[moduleId].alerts then
-            SnitchDB.modules[moduleId].alerts = {
-                console = true,
-                chat = false,
-                chatType = "PARTY",
-                audio = false,
-                audioFile = SOUNDKIT.RAID_WARNING or 8959,
-                screen = false
-            }
-        end
+    elseif not SnitchDB.modules[moduleId].alerts then
+        SnitchDB.modules[moduleId].alerts = {
+            console   = true,
+            chat      = false,
+            audioFile = SOUNDKIT.RAID_WARNING or 8959,
+            audio     = false,
+            screen    = false,
+        }
     end
 end
 
 -- ============================================================================
--- Utility Functions
+-- Utility
 -- ============================================================================
 
 local function DebugPrint(...)
@@ -119,217 +96,122 @@ local function DebugPrint(...)
         print("|cff00ff00[Snitch Debug]|r", ...)
     end
 end
-
 Snitch.DebugPrint = DebugPrint
 
-local function GetCurrentGroup()
-    if IsInRaid() then
-        return "RAID"
-    elseif IsInGroup() then
-        return "PARTY"
-    end
-    return nil
+-- Raid-only guard. Returns false if not in a raid.
+local function IsInRaidGroup()
+    return IsInRaid()
 end
+Snitch.IsInRaidGroup = IsInRaidGroup
 
-local function IsInSupportedGroup()
-    return IsInRaid() or IsInGroup()
+-- Returns short name (no realm) for a unit token.
+local function GetUnitShortName(unitToken)
+    if not unitToken then return nil end
+    local fullName = UnitName(unitToken)
+    if not fullName then return nil end
+    return fullName:match("^([^-]+)") or fullName
 end
+Snitch.GetUnitShortName = GetUnitShortName
+
+-- Returns true if the unit token is a raid member.
+local function IsRaidMemberToken(unitToken)
+    if not unitToken then return false end
+    return UnitInRaid(unitToken) and true or false
+end
+Snitch.IsRaidMemberToken = IsRaidMemberToken
 
 -- ============================================================================
 -- Alert System
 -- ============================================================================
 
 local function SendAlert(message, moduleId)
-    -- Guard clauses
-    if not SnitchDB or not SnitchDB.enabled then
-        DebugPrint("Alert blocked: Addon globally disabled")
-        return
-    end
+    if not SnitchDB or not SnitchDB.enabled then return end
+    if not IsInRaidGroup() then return end
 
-    if not IsInSupportedGroup() then
-        DebugPrint("Alert blocked: Not in a group")
-        return
-    end
-
-    -- Check if module is enabled and get its settings
     local moduleSettings = SnitchDB.modules[moduleId]
-    if not moduleSettings or not moduleSettings.enabled then
-        DebugPrint(string_format("Alert blocked: Module %s disabled", moduleId))
-        return
-    end
+    if not moduleSettings or not moduleSettings.enabled then return end
 
-    -- Get module-specific alert settings
     local alerts = moduleSettings.alerts
-    if not alerts then
-        DebugPrint(string_format("Alert blocked: Module %s has no alert settings", moduleId))
-        return
-    end
+    if not alerts then return end
 
-    DebugPrint("Sending alert:", message)
+    DebugPrint("Alert:", message)
 
-    -- Console output
     if alerts.console then
         print(string_format("|cffff6600[Snitch]|r %s", message))
     end
 
-    -- Chat output
     if alerts.chat then
-        local chatType = alerts.chatType
-        -- Validate chat type based on current group
-        if chatType == "RAID" and not IsInRaid() then
-            chatType = "PARTY"
-        end
-        if chatType == "PARTY" and not IsInGroup() then
-            chatType = "SAY"
-        end
-
-        -- Delay to avoid protected frame issues
         C_Timer.After(0.1, function()
-            local success, err = pcall(SendChatMessage, message, chatType)
-            if not success then
-                DebugPrint("Failed to send chat message:", err)
-            end
+            local ok, err = pcall(SendChatMessage, message, "RAID")
+            if not ok then DebugPrint("Chat send failed:", err) end
         end)
     end
 
-    -- Audio alert
     if alerts.audio and alerts.audioFile then
-        local success, err = pcall(PlaySound, alerts.audioFile)
-        if not success then
-            DebugPrint("Failed to play sound:", err)
-        end
+        local ok, err = pcall(PlaySound, alerts.audioFile)
+        if not ok then DebugPrint("Sound failed:", err) end
     end
 
-    -- Screen warning
-    if alerts.screen then
-        if Snitch.ScreenAlert then
-            local success, err = pcall(Snitch.ScreenAlert.Show, Snitch.ScreenAlert, message)
-            if not success then
-                DebugPrint("Failed to show screen warning:", err)
-            end
-        else
-            DebugPrint("Screen alert system not loaded")
-        end
+    if alerts.screen and Snitch.ScreenAlert then
+        local ok, err = pcall(Snitch.ScreenAlert.Show, Snitch.ScreenAlert, message)
+        if not ok then DebugPrint("Screen alert failed:", err) end
     end
 end
-
 Snitch.SendAlert = SendAlert
 
 -- ============================================================================
--- Event Handling
+-- OnEvent
 -- ============================================================================
 
-local frame = CreateFrame("Frame")
-local combatLogFrame = CreateFrame("Frame")
+local moduleEvents = {}
+local addonReady   = false
 
--- Handle ADDON_LOADED
-frame:RegisterEvent("ADDON_LOADED")
-frame:SetScript("OnEvent", function(_, event, ...)
+Snitch.eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local addonName = ...
-        if addonName == ADDON_NAME then
-            InitializeSettings()
+        if addonName ~= ADDON_NAME then return end
 
-            -- Initialize all modules
-            for moduleId, module in pairs(Snitch.modules) do
-                -- Initialize module settings with default alerts
-                InitializeModuleSettings(moduleId)
+        InitializeSettings()
 
-                -- Run module-specific initialization
-                if module.initialize then
-                    module.initialize()
-                end
-            end
-
-            -- Initialize screen alert system
-            if Snitch.ScreenAlert then
-                Snitch.ScreenAlert:Initialize()
-            end
-
-            -- Register config panel
-            if Snitch.Config then
-                Snitch.Config:RegisterInterfaceOptions()
-            end
-
-            print("Snitch v" .. Snitch.VERSION .. " loaded. Type /snitch to configure.")
-            DebugPrint("Loaded with", #Snitch.modules, "modules")
+        Snitch._modulesReady = true
+        for _, entry in ipairs(Snitch._pendingModules) do
+            Snitch:_RegisterModuleNow(entry.id, entry.config)
         end
-    end
-end)
+        Snitch._pendingModules = {}
 
--- Handle COMBAT_LOG_EVENT_UNFILTERED
-combatLogFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-combatLogFrame:SetScript("OnEvent", function(_, event)
-    -- Early returns for performance
-    if not SnitchDB or not SnitchDB.enabled then return end
-    if not IsInSupportedGroup() then return end
-
-    -- Get combat log info
-    local timestamp, subevent, _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-          destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
-
-    -- Filter: Only process events from players
-    if not sourceName then return end
-
-    -- Filter: Only process events from group members
-    -- Check both party and raid efficiently
-    local inGroup = UnitInParty(sourceName) or UnitInRaid(sourceName)
-    if not inGroup then return end
-
-    -- Pass to enabled modules
-    local modules = Snitch.modules
-    local moduleSettings = SnitchDB.modules
-
-    for moduleId, module in pairs(modules) do
-        if module.onCombatLogEvent then
-            local settings = moduleSettings[moduleId]
-            if settings and settings.enabled then
-                -- Protected call to prevent module errors from breaking the addon
-                local success, err = pcall(module.onCombatLogEvent, subevent, sourceGUID,
-                                          sourceName, sourceFlags, destGUID, destName,
-                                          destFlags, ...)
-                if not success then
-                    DebugPrint(string_format("Error in module %s: %s", moduleId, err))
-                end
+        for moduleId, module in pairs(Snitch.modules) do
+            InitializeModuleSettings(moduleId)
+            for _, ev in ipairs(module.events) do
+                moduleEvents[ev] = moduleEvents[ev] or {}
+                table.insert(moduleEvents[ev], moduleId)
             end
+            if module.initialize then module.initialize() end
         end
-    end
-end)
 
--- ============================================================================
--- Module Event Passthrough (for non-combat-log events)
--- ============================================================================
+        if Snitch.ScreenAlert then Snitch.ScreenAlert:Initialize() end
+        if Snitch.Config      then Snitch.Config:RegisterInterfaceOptions() end
 
-function Snitch:RegisterModuleEvent(moduleId, event)
-    if not self.modules[moduleId] then
-        print("Snitch: Cannot register event for unknown module: " .. moduleId)
+        addonReady = true
+        print("Snitch v" .. Snitch.VERSION .. " loaded. Type /snitch to configure.")
         return
     end
 
-    frame:RegisterEvent(event)
+    if not addonReady then return end
+    if not SnitchDB or not SnitchDB.enabled then return end
+    if not IsInRaid() then return end  -- raid only, bail early
 
-    -- Store which modules are listening to which events
-    self.moduleEvents = self.moduleEvents or {}
-    self.moduleEvents[event] = self.moduleEvents[event] or {}
-    table.insert(self.moduleEvents[event], moduleId)
-end
+    local listeners = moduleEvents[event]
+    if not listeners then return end
 
--- Update frame event handler to pass events to modules
-local originalOnEvent = frame:GetScript("OnEvent")
-frame:SetScript("OnEvent", function(self, event, ...)
-    -- Call original handler first
-    if event == "ADDON_LOADED" then
-        originalOnEvent(self, event, ...)
-    end
-
-    -- Pass to modules that registered for this event
-    if Snitch.moduleEvents and Snitch.moduleEvents[event] then
-        for _, moduleId in ipairs(Snitch.moduleEvents[event]) do
-            local module = Snitch.modules[moduleId]
-            if module and module.onEvent then
-                local moduleSettings = SnitchDB.modules[moduleId]
-                if moduleSettings and moduleSettings.enabled then
-                    module.onEvent(event, ...)
+    local moduleSettings = SnitchDB.modules
+    for _, moduleId in ipairs(listeners) do
+        local module = Snitch.modules[moduleId]
+        if module and module.onEvent then
+            local settings = moduleSettings[moduleId]
+            if settings and settings.enabled then
+                local ok, err = pcall(module.onEvent, event, ...)
+                if not ok then
+                    DebugPrint(string_format("Error in module %s: %s", moduleId, err))
                 end
             end
         end
@@ -346,9 +228,7 @@ SlashCmdList["SNITCH"] = function(msg)
     msg = (msg or ""):lower():trim()
 
     if msg == "" then
-        if Snitch.Config then
-            Snitch.Config:Toggle()
-        end
+        if Snitch.Config then Snitch.Config:Toggle() end
 
     elseif msg == "version" then
         print("Snitch version " .. Snitch.VERSION)
@@ -363,39 +243,22 @@ SlashCmdList["SNITCH"] = function(msg)
 
     elseif msg == "debug" then
         SnitchDB.debug = not SnitchDB.debug
-        print("Snitch debug mode " .. (SnitchDB.debug and "enabled" or "disabled") .. ".")
+        print("Snitch debug " .. (SnitchDB.debug and "ON" or "OFF"))
 
     elseif msg == "status" then
-        local groupType = GetCurrentGroup() or "none"
-        print("Snitch Status:")
-        print("  Global Enabled:", SnitchDB.enabled and "ON" or "OFF")
-        print("  Version:", Snitch.VERSION)
-        print("  Group Type:", groupType)
-        print("  Debug:", SnitchDB.debug and "ON" or "OFF")
-        print("")
+        print("Snitch v" .. Snitch.VERSION)
+        print("  Enabled:", SnitchDB.enabled and "ON" or "OFF")
+        print("  In raid:", IsInRaid() and "YES" or "NO")
+        print("  Debug:",   SnitchDB.debug and "ON" or "OFF")
         print("Modules:")
         for moduleId, module in pairs(Snitch.modules) do
-            local settings = SnitchDB.modules[moduleId]
-            if settings then
-                local status = settings.enabled and "ON" or "OFF"
-                print("  [" .. module.name .. "]", status)
-                if settings.alerts then
-                    local alerts = settings.alerts
-                    print("    Alerts: Console=" .. (alerts.console and "ON" or "OFF") ..
-                          ", Chat=" .. (alerts.chat and "ON" or "OFF") .. " (" .. alerts.chatType .. ")" ..
-                          ", Audio=" .. (alerts.audio and "ON" or "OFF") ..
-                          ", Screen=" .. (alerts.screen and "ON" or "OFF"))
-                end
+            local s = SnitchDB.modules[moduleId]
+            if s then
+                print("  [" .. module.name .. "]", s.enabled and "ON" or "OFF")
             end
         end
 
     else
-        print("Snitch commands:")
-        print("  /snitch - Open config panel")
-        print("  /snitch version")
-        print("  /snitch on")
-        print("  /snitch off")
-        print("  /snitch debug")
-        print("  /snitch status")
+        print("Snitch: /snitch [version|on|off|debug|status]")
     end
 end
